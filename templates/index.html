@@ -140,14 +140,15 @@
                                 resultHtml += `<p>Address: ${data.address}</p>`;
                                 resultHtml += `<p>Alternative Address: ${data.address_new}</p>`;
                                 
+                                // Display Base64 images directly
                                 resultHtml += '<div class="images">';
                                 resultHtml += '<div class="image-container">';
                                 resultHtml += '<h3>Photo</h3>';
-                                resultHtml += `<img src="${data.photo}" alt="Photo">`;
+                                resultHtml += `<img src="data:image/png;base64,${data.photo}" alt="Photo">`;
                                 resultHtml += '</div>';
                                 resultHtml += '<div class="image-container">';
                                 resultHtml += '<h3>Signature</h3>';
-                                resultHtml += `<img src="${data.sign}" alt="Signature">`;
+                                resultHtml += `<img src="data:image/png;base64,${data.sign}" alt="Signature">`;
                                 resultHtml += '</div>';
                                 resultHtml += '</div>';
                                 
