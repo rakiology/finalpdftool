@@ -1,106 +1,176 @@
-from flask import Flask, request, render_template, jsonify
-import fitz  # PyMuPDF
-from PIL import Image
-import io
-import base64
-from flask_cors import CORS  # Add this import
+from flask import Flask, request, jsonify, render_template_string, send_from_directory
+from werkzeug.utils import secure_filename
+import os
+import uuid
+from extract_pdf_data import process_pdf
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
 
-# Route for the home page
+# Configuration
+UPLOAD_FOLDER = 'uploads'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+ALLOWED_EXTENSIONS = {'pdf'}
+
+# Create uploads folder if it doesn't exist
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# HTML template
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PDF Data Extractor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            text-align: center;
+        }
+        #result {
+            margin-top: 20px;
+            white-space: pre-wrap;
+            text-align: left;
+        }
+        .loading {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PDF Data Extractor</h1>
+        <div class="upload-section">
+            <form id="uploadForm">
+                <input type="file" id="pdfFile" accept=".pdf" required>
+                <button type="submit">Extract Data</button>
+            </form>
+            <div class="loading">Processing...</div>
+        </div>
+        <div id="result"></div>
+    </div>
+
+    <script>
+        const form = document.getElementById('uploadForm');
+        const loading = document.querySelector('.loading');
+        const result = document.getElementById('result');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const fileInput = document.getElementById('pdfFile');
+            const file = fileInput.files[0];
+
+            if (!file) {
+                alert('Please select a PDF file');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            loading.style.display = 'block';
+            result.textContent = '';
+
+            try {
+                const response = await fetch('/extract', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+                result.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                result.textContent = 'Error processing PDF: ' + error.message;
+            } finally {
+                loading.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>
+"""
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
 @app.route('/')
-def index():
-    return render_template('index.html')
+def home():
+    return render_template_string(HTML_TEMPLATE)
 
-# Route to handle PDF upload and extraction
 @app.route('/extract', methods=['POST'])
-def extract_data():
-    if 'pdf_file' not in request.files:
-        return jsonify({"Status": False, "Message": "No file part in the request"}), 400
+def extract_pdf_data():
+    # Check if a file was uploaded
+    if 'file' not in request.files:
+        return jsonify({
+            "Status": False,
+            "data": {},
+            "Message": "No file uploaded"
+        }), 400
     
-    file = request.files['pdf_file']
-
+    file = request.files['file']
+    
+    # Check if a file was selected
     if file.filename == '':
-        return jsonify({"Status": False, "Message": "No file selected"}), 400
-
-    if file and file.filename.endswith('.pdf'):
+        return jsonify({
+            "Status": False,
+            "data": {},
+            "Message": "No file selected"
+        }), 400
+    
+    if file and allowed_file(file.filename):
         try:
-            pdf_document = file.read()
-            pdf_data = extract_from_pdf(pdf_document)
-            return jsonify(pdf_data)
-        except Exception as e:
-            return jsonify({"Status": False, "Message": f"Error processing PDF: {str(e)}"}), 500
-    else:
-        return jsonify({"Status": False, "Message": "Invalid file format"}), 400
-
-def extract_from_pdf(pdf_data):
-    doc = fitz.open(stream=pdf_data, filetype="pdf")
-    
-    extracted_data = {
-        "Status": True,
-        "data": {
-            "text": "",
-            "images": [],
-            "extracted_info": {}  # Add this to store structured info
-        },
-        "Message": "PDF extracted successfully."
-    }
-
-    # Extract text and images from each page
-    for page_num in range(doc.page_count):
-        page = doc[page_num]
-        extracted_data["data"]["text"] += page.get_text("text")
-
-        image_list = page.get_images(full=True)
-        for img_index, img in enumerate(image_list):
-            xref = img[0]
-            base_image = doc.extract_image(xref)
-            image_bytes = base_image["image"]
-
-            # Convert image to base64 string for JSON response
-            image = Image.open(io.BytesIO(image_bytes))
-            buffered = io.BytesIO()
-            image.save(buffered, format="PNG")
-            img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-
-            extracted_data["data"]["images"].append(f"data:image/png;base64,{img_str}")
-
-    # Add structured info extraction
-    text = extracted_data["data"]["text"]
-    extracted_data["data"]["extracted_info"] = extract_key_value_pairs(text)
-
-    doc.close()
-    return extracted_data
-
-def extract_key_value_pairs(text):
-    # Import the patterns from your extract_pdf_data.py
-    patterns = {
-        "nid_number": r"National ID\n(.+?)\n",
-        "nid_pin": r"Pin\n(.+?)\n",
-        "name_bn": r"Name\(Bangla\)\n(.+?)\n",
-        "name_en": r"Name\(English\)\n(.+?)\n",
-        "date_of_birth": r"Date of Birth\n(.+?)\n",
-        "date_of_place": r"Birth Place\n(.+?)\n",
-        "father_n": r"Father Name\n(.+?)\n",
-        "mother_n": r"Mother Name\n(.+?)\n",
-        "Present Address": r"Present Address\n(.+?)\n",
-        "Permanent Address": r"Permanent Address\n(.+?)\n",
-        "blood_group": r"Blood Group\n(.+?)\n(?:TIN|$)",
-        "Phone": r"Phone\n(.+?)\n",
-        "Education": r"Education\n(.+?)\n"
-    }
-    
-    extracted_data = {}
-    import re
-    for key, pattern in patterns.items():
-        match = re.search(pattern, text, re.DOTALL)
-        if match:
-            extracted_data[key] = match.group(1).strip()
-        else:
-            extracted_data[key] = None
+            # Generate a unique filename
+            filename = str(uuid.uuid4()) + '_' + secure_filename(file.filename)
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             
-    return extracted_data
+            # Save the uploaded file
+            file.save(filepath)
+            
+            # Process the PDF
+            result = process_pdf(filepath)
+            
+            # Clean up - delete the uploaded file
+            os.remove(filepath)
+            
+            # Handle any extracted images in the uploads folder
+            for file in os.listdir(app.config['UPLOAD_FOLDER']):
+                if file.startswith('extracted_image'):
+                    try:
+                        os.remove(os.path.join(app.config['UPLOAD_FOLDER'], file))
+                    except:
+                        pass
+            
+            return jsonify(result)
+            
+        except Exception as e:
+            return jsonify({
+                "Status": False,
+                "data": {},
+                "Message": f"Error processing PDF: {str(e)}"
+            }), 500
+    
+    return jsonify({
+        "Status": False,
+        "data": {},
+        "Message": "Invalid file type. Only PDF files are allowed."
+    }), 400
+
+@app.route('/extract', methods=['OPTIONS'])
+def handle_options():
+    response = app.make_default_options_response()
+    add_cors_headers(response)
+    return response
+
+@app.after_request
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'POST, GET, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    return response
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=True, host='0.0.0.0', port=5000)
