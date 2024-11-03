@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Data Extractor</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <!-- Add highlight.js for JSON syntax highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/json.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .upload-section {
+            text-align: center;
+            padding: 40px;
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .results-section {
+            display: none;
+            margin-top: 20px;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .error-message {
+            color: #ff0000;
+            margin-top: 10px;
+            display: none;
+        }
+
+        /* JSON display styles */
+        .json-container {
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            padding: 20px;
+            margin-top: 20px;
+            position: relative;
+        }
+
+        pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        code {
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .copy-button {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: #6c757d;
+            padding: 5px 10px;
+            font-size: 12px;
+        }
+
+        .toolbar {
+            margin-bottom: 10px;
+        }
+
+        .image-preview {
+            max-width: 200px;
+            max-height: 200px;
+            margin: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        /* Modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.9);
+        }
+
+        .modal-content {
+            margin: auto;
+            display: block;
+            max-width: 90%;
+            max-height: 90%;
+            margin-top: 50px;
+        }
+
+        .modal-close {
+            position: absolute;
+            right: 20px;
+            top: 10px;
+            color: #fff;
+            font-size: 30px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PDF Data Extractor</h1>
+        
+        <div class="upload-section">
+            <form id="uploadForm" enctype="multipart/form-data">
+                <input type="file" id="pdfFile" name="pdf_file" accept=".pdf" style="display: none;">
+                <button type="button" onclick="document.getElementById('pdfFile').click()">Choose PDF File</button>
+                <p id="selectedFile">No file selected</p>
+                <button type="submit">Extract Data</button>
+            </form>
+        </div>
+
+        <div class="loading">
+            <p>Processing PDF... Please wait...</p>
+        </div>
+
+        <div class="error-message"></div>
+
+        <div class="results-section">
+            <h2>Extracted Data</h2>
+            <div class="toolbar">
+                <button onclick="toggleImages()">Toggle Images</button>
+                <button onclick="toggleRawText()">Toggle Raw Text</button>
+            </div>
+            <div class="json-container">
+                <button class="copy-button" onclick="copyToClipboard()">Copy JSON</button>
+                <pre><code class="json"></code></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for image preview -->
+    <div id="imageModal" class="modal">
+        <span class="modal-close">&times;</span>
+        <img class="modal-content" id="modalImage">
+    </div>
+
+    <script>
+        let extractedData = null;
+        
+        // Update selected file name
+        document.getElementById('pdfFile').addEventListener('change', function(e) {
+            const fileName = e.target.files[0]?.name || 'No file selected';
+            document.getElementById('selectedFile').textContent = fileName;
+        });
+
+        // Handle form submission
+        document.getElementById('uploadForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const fileInput = document.getElementById('pdfFile');
+            if (!fileInput.files.length) {
+                showError('Please select a PDF file');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('pdf_file', fileInput.files[0]);
+
+            // Show loading state
+            document.querySelector('.loading').style.display = 'block';
+            document.querySelector('.error-message').style.display = 'none';
+            document.querySelector('.results-section').style.display = 'none';
+
+            fetch('/extract', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.Status) {
+                    extractedData = data;
+                    displayResults(data);
+                } else {
+                    showError(data.Message || 'Error processing PDF');
+                }
+            })
+            .catch(error => {
+                showError('Error uploading or processing PDF');
+                console.error('Error:', error);
+            })
+            .finally(() => {
+                document.querySelector('.loading').style.display = 'none';
+            });
+        });
+
+        function displayResults(data) {
+            const jsonContainer = document.querySelector('.json-container code');
+            const resultsSection = document.querySelector('.results-section');
+            
+            // Format JSON with indentation
+            const formattedJson = JSON.stringify(data, null, 2);
+            jsonContainer.textContent = formattedJson;
+            
+            // Apply syntax highlighting
+            hljs.highlightElement(jsonContainer);
+
+            resultsSection.style.display = 'block';
+        }
+
+        function showError(message) {
+            const errorDiv = document.querySelector('.error-message');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+            document.querySelector('.loading').style.display = 'none';
+        }
+
+        function copyToClipboard() {
+            const jsonText = JSON.stringify(extractedData, null, 2);
+            navigator.clipboard.writeText(jsonText).then(() => {
+                const copyButton = document.querySelector('.copy-button');
+                copyButton.textContent = 'Copied!';
+                setTimeout(() => {
+                    copyButton.textContent = 'Copy JSON';
+                }, 2000);
+            });
+        }
+
+        function toggleImages() {
+            if (!extractedData) return;
+            
+            const currentData = JSON.parse(JSON.stringify(extractedData));
+            if (currentData.data.images && currentData.data.images.length > 0) {
+                if (currentData.data.images[0].startsWith('data:image')) {
+                    currentData.data.images = currentData.data.images.map(() => '[Image Data]');
+                } else {
+                    currentData.data.images = extractedData.data.images;
+                }
+                displayResults(currentData);
+            }
+        }
+
+        function toggleRawText() {
+            if (!extractedData) return;
+            
+            const currentData = JSON.parse(JSON.stringify(extractedData));
+            if (currentData.data.text) {
+                if (currentData.data.text.length > 100) {
+                    currentData.data.text = '[Text Content]';
+                } else {
+                    currentData.data.text = extractedData.data.text;
+                }
+                displayResults(currentData);
+            }
+        }
+
+        // Initialize highlight.js
+        hljs.highlightAll();
+    </script>
+</body>
+</html>
