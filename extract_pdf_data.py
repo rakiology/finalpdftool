@@ -5,9 +5,18 @@ import json
 import re
 from datetime import datetime
 import os
+import socket
 
-# Base URL for accessing images (modify this to your server's base path)
-BASE_URL = "http://localhost/output_images"  # Change this to your actual server URL
+def get_base_url():
+    """Generate a dynamic base URL based on the server's hostname."""
+    hostname = socket.gethostname()
+    ip_address = socket.gethostbyname(hostname)
+    # For localhost, replace IP with "localhost" in the URL
+    if ip_address == "127.0.0.1":
+        ip_address = "localhost"
+    return f"http://{ip_address}/output_images"
+
+BASE_URL = get_base_url()
 
 def extract_text_from_pdf(pdf_path):
     """Extract text content from PDF file."""
@@ -18,10 +27,12 @@ def extract_text_from_pdf(pdf_path):
         return text
 
 def extract_images_from_pdf(pdf_path):
-    """Extract images from PDF and save them to 'output_images' directory."""
+    """Extract images from PDF and save them to 'output_images' directory with unique names."""
     images = []
     output_dir = "output_images"
     os.makedirs(output_dir, exist_ok=True)  # Create the directory if it doesn't exist
+
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")  # Unique timestamp
 
     with fitz.open(pdf_path) as pdf:
         for page_num in range(len(pdf)):
@@ -31,8 +42,8 @@ def extract_images_from_pdf(pdf_path):
                 image_bytes = base_image["image"]
                 image_ext = base_image["ext"]
 
-                # Save images in the output directory with specific filenames
-                image_name = f"image{img_index + 1}.{image_ext}"
+                # Save each image with a unique filename
+                image_name = f"image_{timestamp}_{img_index + 1}.{image_ext}"
                 image_path = os.path.join(output_dir, image_name)
                 image = Image.open(io.BytesIO(image_bytes))
                 image.save(image_path)
@@ -108,8 +119,8 @@ def process_pdf(pdf_path):
         
         # Extract and save images with URLs
         images = extract_images_from_pdf(pdf_path)
-        photo_url = images[0] if len(images) > 0 else f"{BASE_URL}/image1.png"
-        sign_url = images[1] if len(images) > 1 else f"{BASE_URL}/image2.png"
+        photo_url = images[0] if len(images) > 0 else ""
+        sign_url = images[1] if len(images) > 1 else ""
 
         # Format addresses
         address, address_new = format_address()  # Defaults for Bengali formatting
