@@ -6,6 +6,9 @@ import re
 from datetime import datetime
 import os
 
+# Base URL for accessing images (modify this to your server's base path)
+BASE_URL = "http://localhost/output_images"  # Change this to your actual server URL
+
 def extract_text_from_pdf(pdf_path):
     """Extract text content from PDF file."""
     with fitz.open(pdf_path) as pdf:
@@ -15,8 +18,11 @@ def extract_text_from_pdf(pdf_path):
         return text
 
 def extract_images_from_pdf(pdf_path):
-    """Extract images from PDF and save them."""
+    """Extract images from PDF and save them to 'output_images' directory."""
     images = []
+    output_dir = "output_images"
+    os.makedirs(output_dir, exist_ok=True)  # Create the directory if it doesn't exist
+
     with fitz.open(pdf_path) as pdf:
         for page_num in range(len(pdf)):
             for img_index, img in enumerate(pdf.get_page_images(page_num)):
@@ -25,13 +31,17 @@ def extract_images_from_pdf(pdf_path):
                 image_bytes = base_image["image"]
                 image_ext = base_image["ext"]
 
-                # Save images as image1.png and image2.png
+                # Save images in the output directory with specific filenames
                 image_name = f"image{img_index + 1}.{image_ext}"
+                image_path = os.path.join(output_dir, image_name)
                 image = Image.open(io.BytesIO(image_bytes))
-                image.save(image_name)
-                images.append(image_name)
+                image.save(image_path)
+                
+                # Add the full URL for the image
+                image_url = f"{BASE_URL}/{image_name}"
+                images.append(image_url)
 
-    return images[:2]  # Return only first two images (photo and signature)
+    return images[:2]  # Return only the first two image URLs (photo and signature)
 
 def format_address():
     """Format address in two different styles using default values."""
@@ -96,10 +106,10 @@ def process_pdf(pdf_path):
         # Extract specific information using refined patterns
         info = extract_key_value_pairs(text)
         
-        # Extract and save images
+        # Extract and save images with URLs
         images = extract_images_from_pdf(pdf_path)
-        photo = images[0] if len(images) > 0 else "image1.png"
-        sign = images[1] if len(images) > 1 else "image2.png"
+        photo_url = images[0] if len(images) > 0 else f"{BASE_URL}/image1.png"
+        sign_url = images[1] if len(images) > 1 else f"{BASE_URL}/image2.png"
 
         # Format addresses
         address, address_new = format_address()  # Defaults for Bengali formatting
@@ -119,8 +129,8 @@ def process_pdf(pdf_path):
                 "blood_group": info.get('blood_group', ""),
                 "address": address,
                 "address_new": address_new,
-                "photo": photo,
-                "sign": sign
+                "photo": photo_url,
+                "sign": sign_url
             },
             "Message": "PDF extracted successfully."
         }
